@@ -1763,21 +1763,22 @@ impl LanceNamespace for DirectoryNamespace {
     ) -> Result<String> {
         let table_uri = self.resolve_table_location(&request.id).await?;
         // The request can name the branch itself or in its query; both must agree.
-        let branch = match (
-            Self::normalized_branch(request.branch.as_deref())?,
-            Self::normalized_branch(request.query.branch.as_deref())?,
-        ) {
-            (Some(branch), Some(query_branch)) if branch != query_branch => {
-                return Err(NamespaceError::InvalidInput {
-                    message: format!(
-                        "explain_table_query_plan names branch '{}' but its query names branch '{}'",
-                        branch, query_branch
-                    ),
-                }
-                .into());
+        let request_branch = Self::normalized_branch(request.branch.as_deref())?;
+        let query_branch = Self::normalized_branch(request.query.branch.as_deref())?;
+        if request.branch.is_some()
+            && request.query.branch.is_some()
+            && request_branch != query_branch
+        {
+            return Err(NamespaceError::InvalidInput {
+                message: format!(
+                    "explain_table_query_plan names branch '{}' but its query names branch '{}'",
+                    request_branch.unwrap_or("main"),
+                    query_branch.unwrap_or("main")
+                ),
             }
-            (branch, query_branch) => branch.or(query_branch),
-        };
+            .into());
+        }
+        let branch = request_branch.or(query_branch);
         let dataset = self
             .load_branch_dataset(
                 &table_uri,

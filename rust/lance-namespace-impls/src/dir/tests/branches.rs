@@ -931,6 +931,25 @@ async fn test_unsupported_branch_requests_fail() {
         err.to_string().contains("its query names branch 'other'"),
         "{err}"
     );
+
+    let err = namespace
+        .explain_table_query_plan(ExplainTableQueryPlanRequest {
+            id,
+            branch: Some("main".to_string()),
+            query: Box::new(QueryTableRequest {
+                branch: Some("exp".to_string()),
+                k: 10,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("names branch 'main' but its query names branch 'exp'"),
+        "{err}"
+    );
 }
 
 /// V2 is the default naming scheme, and the pre-rewrite delete path
