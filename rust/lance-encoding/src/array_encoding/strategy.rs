@@ -138,6 +138,7 @@ impl ArrayFieldEncodingStrategy {
             // The 2.0 reader cannot decode a fixed-size list of variable-width items.
             return match item.data_type() {
                 nested @ DataType::FixedSizeList(..) => Self::is_primitive_type(nested),
+                DataType::Dictionary(..) => false,
                 item => !item.is_binary_like(),
             };
         }

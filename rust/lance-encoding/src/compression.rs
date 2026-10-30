@@ -842,22 +842,23 @@ pub fn try_fixed_packed_struct_miniblock(
     )))
 }
 
-/// The value encoder stores each fixed-size list as one fixed-width value, so it
-/// cannot hold lists whose innermost items are variable width.
-fn fixed_size_list_has_variable_width_items(fsl: &FixedSizeListBlock) -> bool {
+/// The value encoder can store fixed-size lists only when every layer wraps
+/// fixed-width values or an all-null leaf.
+fn fixed_size_list_can_use_value_encoder(fsl: &FixedSizeListBlock) -> bool {
     let mut child = fsl.child.as_ref();
     loop {
         child = match child {
             DataBlock::FixedSizeList(inner) => inner.child.as_ref(),
             DataBlock::Nullable(inner) => inner.data.as_ref(),
-            leaf => return matches!(leaf, DataBlock::VariableWidth(_)),
+            DataBlock::FixedWidth(_) | DataBlock::AllNull(_) => return true,
+            _ => return false,
         };
     }
 }
 
 /// Store fixed-size-list miniblocks without a value codec.
 pub fn try_raw_fixed_size_list_miniblock(data: &DataBlock) -> Option<Box<dyn MiniBlockCompressor>> {
-    matches!(data, DataBlock::FixedSizeList(fsl) if !fixed_size_list_has_variable_width_items(fsl))
+    matches!(data, DataBlock::FixedSizeList(fsl) if fixed_size_list_can_use_value_encoder(fsl))
         .then(|| Box::new(ValueEncoder::default()) as _)
 }
 
@@ -865,7 +866,7 @@ pub fn try_raw_fixed_size_list_miniblock(data: &DataBlock) -> Option<Box<dyn Min
 pub fn try_raw_per_value(data: &DataBlock) -> Option<Box<dyn PerValueCompressor>> {
     let raw = match data {
         DataBlock::FixedWidth(_) => true,
-        DataBlock::FixedSizeList(fsl) => !fixed_size_list_has_variable_width_items(fsl),
+        DataBlock::FixedSizeList(fsl) => fixed_size_list_can_use_value_encoder(fsl),
         _ => false,
     };
     raw.then(|| Box::new(ValueEncoder::default()) as _)

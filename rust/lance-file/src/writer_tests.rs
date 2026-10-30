@@ -15,8 +15,8 @@ mod tests {
     use crate::writer::{
         ENV_LANCE_FILE_WRITER_MAX_PAGE_BYTES, FieldTypeMismatch, FileWriter, FileWriterOptions,
     };
-    use arrow_array::builder::{Float32Builder, Int32Builder};
-    use arrow_array::types::Float64Type;
+    use arrow_array::builder::{Float32Builder, Int32Builder, StringDictionaryBuilder};
+    use arrow_array::types::{Float64Type, Int32Type};
     use arrow_array::{
         Array, ArrayRef, FixedSizeListArray, Float32Array, Int32Array, LargeBinaryArray, ListArray,
         RecordBatch, RecordBatchReader, StringArray, StructArray, UInt64Array,
@@ -1087,6 +1087,50 @@ mod tests {
             matches!(error, lance_core::Error::InvalidInput { .. }),
             "{error}"
         );
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_writer_rejects_fixed_size_list_of_dictionary_strings(
+        #[values(
+            ConcreteFileVersion::V2_0,
+            ConcreteFileVersion::V2_1,
+            ConcreteFileVersion::V2_2,
+            ConcreteFileVersion::V2_3
+        )]
+        version: ConcreteFileVersion,
+    ) {
+        let mut builder = StringDictionaryBuilder::<Int32Type>::new();
+        for i in 0..8 {
+            builder.append_value(format!("item-{i}"));
+        }
+        let values: ArrayRef = Arc::new(builder.finish());
+        let item_field = Arc::new(ArrowField::new("item", values.data_type().clone(), true));
+        let tags = FixedSizeListArray::new(item_field, 2, values, None);
+        let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "tags",
+            tags.data_type().clone(),
+            true,
+        )]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(tags)]).unwrap();
+        let fs = FsFixture::default();
+        let result = async {
+            let mut writer = create_writer(
+                fs.object_store.create(&fs.tmp_path).await?,
+                LanceSchema::try_from(schema.as_ref())?,
+                version,
+                FileWriterOptions::default(),
+            )?;
+            writer.write_batch(&batch).await?;
+            writer.finish().await
+        }
+        .await;
+        let error = result.expect_err("fixed-size list of dictionary strings was written");
+        assert!(
+            matches!(error, lance_core::Error::NotSupported { .. }),
+            "{error}"
+        );
+        assert!(error.to_string().contains("FixedSizeList"), "{error}");
     }
 
     fn struct_array(fields: ArrowFields, nulls: Option<NullBuffer>) -> StructArray {
